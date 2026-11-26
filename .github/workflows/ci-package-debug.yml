@@ -1,75 +1,57 @@
 name: RyGT Diagnostics CI package
-run-name: RyGT Diagnostics development build
+run-name: GT7 experimental discovery build
 on:
   push:
-    branches: [development]
-  workflow_call:
-    inputs:
-      renderer_sha:
-        type: string
-        required: false
-        default: ''
-      source_sha:
-        type: string
-        required: false
-        default: ''
-    secrets:
-      GITLAB_PACKAGE_TOKEN:
-        required: false
-      CODESIGN_PFX_BASE64:
-        required: false
-      CODESIGN_PFX_PASSWORD:
-        required: false
+    branches: [feat/shader-preparation-nvidia-4070]
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: rygts-diagnostics-package
+  group: gt7-preparation-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  source:
+  tests:
+    if: github.repository == 'gperea602/RyGT' && github.ref == 'refs/heads/feat/shader-preparation-nvidia-4070'
     runs-on: ubuntu-24.04
     outputs:
-      controller_commit: ${{ steps.controller.outputs.commit }}
-      commit: ${{ steps.source.outputs.commit }}
-      renderer_commit: ${{ steps.source.outputs.renderer_commit }}
-      needed: ${{ steps.source.outputs.needed }}
+      renderer: ${{ steps.pin.outputs.renderer }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          repository: RyGT-Team/RyGT
-          ref: ${{ github.repository == 'RyGT-Team/RyGT' && github.event_name == 'push' && github.sha || inputs.source_sha || 'development' }}
           persist-credentials: false
-      - name: Select exact GitHub runtime revision
-        id: controller
-        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: Test renderer revision and package controls
-        run: python3 -m unittest discover -s ci/tests -p 'test_*.py'
-      - id: source
-        env:
-          SOURCE_OVERRIDE_SHA: ${{ steps.controller.outputs.commit }}
-          RENDERER_OVERRIDE_SHA: ${{ inputs.renderer_sha }}
-          GITHUB_TOKEN: ${{ github.token }}
-        run: python3 ci/github-registry/registry_ci.py resolve debug-ci
+      - name: Verify experimental renderer pin
+        id: pin
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          pin = json.loads(Path("renderer/source.json").read_text())
+          assert pin["repository"] == "https://github.com/gperea602/shadGT.git"
+          assert pin["branch"] == "feat/shader-preparation-nvidia-4070"
+          assert re.fullmatch("[0-9a-f]{40}", pin["commit"])
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              print("renderer=" + pin["commit"], file=out)
+          PY
+      - name: Run discovery and runtime Python tests
+        run: python3 -m unittest discover -s ci/tests -p 'test_*.py' -v
   windows:
-    needs: [source, tests]
-    if: needs.source.outputs.needed == 'true'
+    needs: tests
     runs-on: windows-2022
     timeout-minutes: 180
     env:
-      SOURCE_SHA: ${{ needs.source.outputs.commit }}
-      RENDERER_SHA: ${{ needs.source.outputs.renderer_commit }}
+      RENDERER_SHA: ${{ needs.tests.outputs.renderer }}
       RYGT_CI_ROOT: C:/rygt-ci/${{ github.run_id }}-diagnostics
     steps:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: '3.12'
-      # FEAT-GTS-263: adcpatch is built with the .NET SDK pinned in ci/runtime-toolchain.json.
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73
         with:
           dotnet-version: '10.0.401'
-      - name: Fetch exact GitHub source
+      - name: Fetch exact fork runtime
         shell: pwsh
+        env:
+          SOURCE_SHA: ${{ github.sha }}
         run: |
           $ErrorActionPreference = 'Stop'
           if ($env:SOURCE_SHA -cnotmatch '^[0-9a-f]{40}$') { throw 'Invalid source SHA' }
@@ -77,22 +59,20 @@ jobs:
           Set-Location $env:RYGT_CI_ROOT
           git init
           git config core.longpaths true
-          git remote add origin https://github.com/RyGT-Team/RyGT.git
+          git remote add origin https://github.com/gperea602/RyGT.git
           git fetch --depth=1 origin $env:SOURCE_SHA
-          if ($LASTEXITCODE) { throw 'GitHub fetch failed' }
+          if ($LASTEXITCODE) { throw 'Fork fetch failed' }
           git checkout --detach FETCH_HEAD
           if ($LASTEXITCODE -or (git rev-parse HEAD) -cne $env:SOURCE_SHA) { throw 'Source mismatch' }
-      - name: Build Diagnostics launcher, renderer, runtime libraries and tools
+      - name: Build diagnostic runtime and renderer
         shell: pwsh
         env:
-          RYGT_CODESIGN: '1'
-          CODESIGN_PFX_BASE64: ${{ secrets.CODESIGN_PFX_BASE64 }}
-          CODESIGN_PFX_PASSWORD: ${{ secrets.CODESIGN_PFX_PASSWORD }}
+          RYGT_CODESIGN: '0'
         run: |
           $ErrorActionPreference = 'Stop'
           Set-Location $env:RYGT_CI_ROOT
-          python -m unittest discover -s ci/tests -p 'test_*.py'
-          if ($LASTEXITCODE) { throw 'CI regression tests failed' }
+          python -m unittest discover -s ci/tests -p 'test_*.py' -v
+          if ($LASTEXITCODE) { throw 'Python tests failed' }
           . ./ci/setup-hosted-windows.ps1
           & ./ci/build-windows.ps1 -Target Launcher -Flavor Diagnostics
           & ./ci/build-windows.ps1 -Target Renderer -Flavor Diagnostics
@@ -100,7 +80,7 @@ jobs:
           & ./ci/build-windows.ps1 -Target Tools
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: windows-diagnostics-${{ needs.source.outputs.commit }}-renderer-${{ needs.source.outputs.renderer_commit }}
+          name: experimental-windows-build
           path: |
             ${{ env.RYGT_CI_ROOT }}/artifacts/launcher-diagnostics/**
             ${{ env.RYGT_CI_ROOT }}/artifacts/renderer-diagnostics/**
@@ -108,104 +88,58 @@ jobs:
             ${{ env.RYGT_CI_ROOT }}/artifacts/tools/**
           if-no-files-found: error
           retention-days: 7
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
-        with:
-          name: capture-layout-debug-${{ needs.source.outputs.commit }}-renderer-${{ needs.source.outputs.renderer_commit }}
-          path: ${{ env.RYGT_CI_ROOT }}/artifacts/renderer-diagnostics/capture-layout-debug.json
-          if-no-files-found: ignore
-          retention-days: 7
-  tests:
-    needs: source
-    if: needs.source.outputs.needed == 'true'
-    runs-on: ubuntu-24.04
-    env:
-      SOURCE_SHA: ${{ needs.source.outputs.commit }}
-      RENDERER_SHA: ${{ needs.source.outputs.renderer_commit }}
-    steps:
-      - name: Fetch exact GitHub source
-        run: |
-          set -euo pipefail
-          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          git init source
-          cd source
-          git remote add origin https://github.com/RyGT-Team/RyGT.git
-          git fetch --depth=1 origin "$SOURCE_SHA"
-          git checkout --detach FETCH_HEAD
-          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-      - name: Build and test converter
-        working-directory: source
-        run: |
-          python3 -m unittest discover -s ci/tests -p 'test_*.py'
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build
-          cmake --preset linux-release-cli
-          cmake --build --preset linux-release-cli --parallel 2
-          ctest --test-dir build/linux-release-cli --output-on-failure --no-tests=error --output-junit converter-tests.xml
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
-        with:
-          name: converter-tests-diagnostics-${{ needs.source.outputs.commit }}
-          path: source/converter-tests.xml
-          retention-days: 7
   package:
-    needs: [source, windows, tests]
+    needs: [tests, windows]
     runs-on: ubuntu-24.04
     env:
-      SOURCE_SHA: ${{ needs.source.outputs.commit }}
-      RENDERER_SHA: ${{ needs.source.outputs.renderer_commit }}
+      CI_COMMIT_SHA: ${{ github.sha }}
+      RENDERER_SHA: ${{ needs.tests.outputs.renderer }}
       CI_CHANNEL: debug-ci
+      CI_PIPELINE_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          repository: RyGT-Team/RyGT
-          ref: ${{ needs.source.outputs.controller_commit }}
           persist-credentials: false
-      - name: Fetch exact GitHub source
-        run: |
-          set -euo pipefail
-          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          git init source
-          cd source
-          git remote add origin https://github.com/RyGT-Team/RyGT.git
-          git fetch --depth=1 origin "$SOURCE_SHA"
-          git checkout --detach FETCH_HEAD
-          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: windows-diagnostics-${{ needs.source.outputs.commit }}-renderer-${{ needs.source.outputs.renderer_commit }}
-          path: source/artifacts/
-      - name: Assemble and validate Diagnostics package
-        working-directory: source
-        env:
-          CI_COMMIT_SHA: ${{ needs.source.outputs.commit }}
-          CI_PIPELINE_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          CI_CHANNEL: debug-ci
+          name: experimental-windows-build
+          path: artifacts/
+      - name: Assemble and check ZIP
         run: python3 ci/package.py
-      - name: Verify package provenance and checksum
-        run: python3 ci/github-registry/registry_ci.py verify debug-ci
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        id: package_artifact
-        with:
-          name: debug-ci-${{ needs.source.outputs.commit }}-renderer-${{ needs.source.outputs.renderer_commit }}
-          path: |
-            source/dist/RyGT-debug-ci-*.zip
-            source/dist/RyGT-debug-ci-*.zip.sha256
-          if-no-files-found: error
-          retention-days: 7
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        id: manifest_artifact
-        with:
-          name: package-manifest-diagnostics-${{ needs.source.outputs.commit }}-renderer-${{ needs.source.outputs.renderer_commit }}
-          path: source/dist/CI-PACKAGES.json
-          if-no-files-found: error
-          retention-days: 7
-      - name: Summarize artifacts
-        env:
-          PACKAGE_URL: ${{ steps.package_artifact.outputs.artifact-url }}
-          MANIFEST_URL: ${{ steps.manifest_artifact.outputs.artifact-url }}
+      - name: Verify final fork provenance
         run: |
-          echo "### CI artifacts" >> "$GITHUB_STEP_SUMMARY"
-          echo "[Package and checksum]($PACKAGE_URL) | [Manifest]($MANIFEST_URL)" >> "$GITHUB_STEP_SUMMARY"
-          echo "Source: [${SOURCE_SHA}](https://github.com/RyGT-Team/RyGT/commit/${SOURCE_SHA})" >> "$GITHUB_STEP_SUMMARY"
-          echo "Renderer: [${RENDERER_SHA}](https://github.com/RyGT-Team/shadGT/commit/${RENDERER_SHA})" >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY'
+          import hashlib, json, os, zipfile
+          from pathlib import Path
+          root = Path("dist")
+          manifest = json.loads((root / "CI-PACKAGES.json").read_text())
+          assert manifest["commit"] == os.environ["CI_COMMIT_SHA"]
+          assert manifest["renderer_commit"] == os.environ["RENDERER_SHA"]
+          assert len(manifest["variants"]) == 1
+          item = manifest["variants"][0]
+          archive = root / item["archive"]
+          with archive.open("rb") as source:
+              assert hashlib.file_digest(source, "sha256").hexdigest() == item["sha256"]
+          with zipfile.ZipFile(archive) as z:
+              info = json.loads(z.read(archive.stem + "/BUILD_INFO.txt"))
+              assert info["renderer_source"].splitlines() == [
+                  "https://github.com/gperea602/shadGT.git", os.environ["RENDERER_SHA"]]
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: GT7-experimental-diagnostics-${{ github.sha }}
+          path: |
+            dist/RyGT-debug-ci-*.zip
+            dist/RyGT-debug-ci-*.zip.sha256
+            dist/CI-PACKAGES.json
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: GT7-discovery-tools-${{ github.sha }}
+          path: |
+            ci/diagnostics/gt7_shader_discovery.py
+            ci/diagnostics/gt7_preparation_preflight.py
+            ci/diagnostics/GT7_SHADER_DISCOVERY.md
+          if-no-files-found: error
+          retention-days: 7

@@ -46,3 +46,12 @@ the same environment planned for the diagnostic process. It does not start the
 game or create the operator assertion marker. A pass does not establish OS-level
 isolation, exclusive execution, safe input routing or offline network behavior;
 those still require separate live checks before a real session.
+
+## Experimental build (FEAT-RT-901)
+
+This branch pins gperea602/shadGT at 99062fa02da4e308903c3379117dddf1d32d9825. The branch-local
+Diagnostics workflow builds both personal forks, tests Python controls, and
+uploads checked ZIPs plus discovery scripts as Actions artifacts. It never
+calls the upstream package workflow or registry. The workflow is restricted to
+this fork and branch. This is an unsigned diagnostics build for isolated tests,
+not a completed preparation feature or a release. Game data is not included.

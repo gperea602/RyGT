@@ -1,5 +1,5 @@
 {
-  "repository": "https://github.com/RyGT-Team/shadGT.git",
-  "branch": "ryty-gpu",
-  "commit": "HEAD"
+  "repository": "https://github.com/gperea602/shadGT.git",
+  "branch": "feat/shader-preparation-nvidia-4070",
+  "commit": "99062fa02da4e308903c3379117dddf1d32d9825"
 }
