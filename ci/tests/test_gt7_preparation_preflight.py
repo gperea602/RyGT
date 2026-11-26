@@ -5,6 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from types import SimpleNamespace
+import stat
 
 SPEC = importlib.util.spec_from_file_location("preflight",
     Path(__file__).resolve().parents[1] / "diagnostics" / "gt7_preparation_preflight.py")
@@ -38,15 +40,30 @@ class PreflightTests(unittest.TestCase):
         def missing_link_count(path, *args, **kwargs):
             result = original_stat(path, *args, **kwargs)
             if Path(path) == target:
-                values = list(result)
-                values[3] = 0  # st_nlink
-                return os.stat_result(values)
+                # Preserve the Windows attributes, which are lost by reconstructing
+                # os.stat_result from its ten positional fields.
+                return SimpleNamespace(st_mode=result.st_mode, st_nlink=0,
+                    st_file_attributes=getattr(result, "st_file_attributes", None))
             return result
 
         with patch.object(mod.os, "stat", side_effect=missing_link_count):
             issues = self.check()
         self.assertEqual(len(issues), 1, issues)
         self.assertIn("GT7.exe", issues[0])
+        self.assertIn("hardlinked", issues[0])
+
+    def test_missing_windows_attributes_fail_closed(self):
+        fake = SimpleNamespace(st_mode=stat.S_IFREG, st_nlink=1, st_file_attributes=None)
+        with patch.object(mod.os, "name", "nt"):
+            self.assertTrue(mod.linked(fake))
+        with patch.object(mod.os, "name", "posix"):
+            self.assertFalse(mod.linked(fake))
+
+    def test_windows_reparse_bit_is_rejected(self):
+        for attributes, expected in ((0, False), (0x400, True)):
+            with self.subTest(attributes=attributes):
+                self.assertEqual(mod.linked(SimpleNamespace(st_mode=stat.S_IFREG,
+                    st_nlink=1, st_file_attributes=attributes)), expected)
 
     def test_overlap(self):
         self.assertTrue(mod.audit(self.player, self.player, {}))

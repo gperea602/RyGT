@@ -18,9 +18,14 @@ def overlaps(a, b):
 
 
 def linked(st):
-    return (stat.S_ISLNK(st.st_mode) or
-            bool(getattr(st, "st_file_attributes", 0) &
-                 getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)))
+    # FIX-RT-904: a missing Windows attribute is not evidence of a safe file.
+    # On POSIX the attribute is absent by design.
+    attributes = getattr(st, "st_file_attributes", None)
+    if stat.S_ISLNK(st.st_mode):
+        return True
+    if attributes is None:
+        return os.name == "nt"
+    return bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
 
 
 def audit(sandbox, player, env):
