@@ -55,3 +55,19 @@ uploads checked ZIPs plus discovery scripts as Actions artifacts. It never
 calls the upstream package workflow or registry. The workflow is restricted to
 this fork and branch. This is an unsigned diagnostics build for isolated tests,
 not a completed preparation feature or a release. Game data is not included.
+
+## Passive discovery survey (FEAT-GT7-904)
+
+Before attempting a route, use gt7_discovery_survey.py beside
+gt7_shader_discovery.py to collect an append-only JSONL timeline in the
+independent diagnostic copy. Supply --sandbox, --store, --log and --report
+(new file outside shaders); --interval defaults to 2 seconds. Omit --duration
+to observe until a report-name.jsonl.stop file is created, or Ctrl+C.
+Run preflight and confirm runtime/network isolation first; the marker is not
+a security boundary. The survey never sends input or launches the game.
+It counts new cache identities seen at samples and distinct logged graphics
+and compute compile attempts, excludes pre-existing log lines, and preserves
+log byte offsets. Attempts are not confirmed successful compilations. A
+resource created and removed between samples can be missed. Scene states
+remain unclassified until confirmed in a real GT7 session. Log retention
+and memory/disk costs of very long surveys still need live measurement.
