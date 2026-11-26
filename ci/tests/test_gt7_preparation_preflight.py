@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 SPEC = importlib.util.spec_from_file_location("preflight",
     Path(__file__).resolve().parents[1] / "diagnostics" / "gt7_preparation_preflight.py")
@@ -29,6 +30,24 @@ class PreflightTests(unittest.TestCase):
     def test_independent_copy(self):
         self.assertEqual(self.check(), [])
 
+    def test_unknown_link_count_is_rejected(self):
+        # Fail closed if even the direct stat cannot obtain the link count.
+        original_stat = os.stat
+        target = self.sandbox / "GT7.exe"
+
+        def missing_link_count(path, *args, **kwargs):
+            result = original_stat(path, *args, **kwargs)
+            if Path(path) == target:
+                values = list(result)
+                values[3] = 0  # st_nlink
+                return os.stat_result(values)
+            return result
+
+        with patch.object(mod.os, "stat", side_effect=missing_link_count):
+            issues = self.check()
+        self.assertEqual(len(issues), 1, issues)
+        self.assertIn("GT7.exe", issues[0])
+
     def test_overlap(self):
         self.assertTrue(mod.audit(self.player, self.player, {}))
 
@@ -52,7 +71,10 @@ class PreflightTests(unittest.TestCase):
             os.link(target, self.sandbox / "user" / "save.bin")
         except OSError as error:
             self.skipTest(str(error))
-        self.assertTrue(any("hardlinked" in item for item in self.check()))
+        issues = self.check()
+        self.assertEqual(len(issues), 1, issues)
+        self.assertIn("hardlinked", issues[0])
+        self.assertIn("save.bin", issues[0])
 
     def test_symlink(self):
         try:

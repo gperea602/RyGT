@@ -47,7 +47,10 @@ def audit(sandbox, player, env):
     def scan(directory):
         with os.scandir(directory) as entries:
             for entry in entries:
-                st = entry.stat(follow_symlinks=False)
+                # FIX-RT-903: Windows DirEntry.stat() reports st_nlink=0 even
+                # for ordinary files. os.stat() obtains the real link count.
+                # Keep no-follow semantics and reject unknown link counts.
+                st = os.stat(entry.path, follow_symlinks=False)
                 if linked(st):
                     issues.append("Link/reparse point: " + str(entry.path))
                 elif stat.S_ISDIR(st.st_mode):
