@@ -81,8 +81,17 @@ def linked_pe(exports=(), imports=None):
 
 
 class PackageTests(unittest.TestCase):
+    def setUp(self):
+        # FIX-RT-902: fixtures have synthetic SHA values and must not depend on
+        # the checked-out branch's real renderer pin.
+        self.policy = {'repository': 'https://github.com/RyGT-Team/shadGT.git',
+                       'branch': 'ryty-gpu', 'commit': 'HEAD'}
+        policy = patch.object(pkg, 'renderer_source_policy', return_value=self.policy)
+        policy.start()
+        self.addCleanup(policy.stop)
+
     def fixture(self):
-        pin = json.loads((ROOT / 'renderer/source.json').read_text())
+        pin = self.policy
         for flavor, _, suffix in pkg.VARIANTS:
             for target, binary in (('launcher', 'RyGTLauncher.exe'), ('renderer', 'libSceVideoOut.prx')):
                 folder = Path('artifacts/' + target + suffix)
@@ -218,6 +227,35 @@ class PackageTests(unittest.TestCase):
             with patch.dict(os.environ, {'CI_COMMIT_SHA': SHA, 'RENDERER_SHA': RENDERER_SHA}):
                 with self.assertRaisesRegex(RuntimeError, 'Renderer source revision mismatch'):
                     pkg.package()
+
+    def test_explicit_fork_pin_accepts_matching_artifacts(self):
+        self.policy.update(repository='https://github.com/gperea602/shadGT.git',
+                           branch='feat/shader-preparation-nvidia-4070', commit=RENDERER_SHA)
+        with tempfile.TemporaryDirectory() as temp, contextlib.chdir(temp):
+            self.fixture()
+            with patch.dict(os.environ, {'CI_COMMIT_SHA': SHA}, clear=True):
+                pkg.package(channels='debug-ci')
+            manifest = json.loads(Path('dist/CI-PACKAGES.json').read_text())
+            self.assertEqual(manifest['renderer_commit'], RENDERER_SHA)
+            archive = Path('dist') / manifest['variants'][0]['archive']
+            with zipfile.ZipFile(archive) as z:
+                info = json.loads(z.read(archive.stem + '/BUILD_INFO.txt'))
+                self.assertEqual(info['renderer_source'].splitlines(),
+                                 [self.policy['repository'], RENDERER_SHA])
+
+    def test_explicit_fork_pin_rejects_wrong_revision_or_origin(self):
+        self.policy.update(repository='https://github.com/gperea602/shadGT.git',
+                           branch='feat/shader-preparation-nvidia-4070', commit=RENDERER_SHA)
+        for origin, revision in ((self.policy['repository'], 'c' * 40),
+                                 ('https://github.com/RyGT-Team/shadGT.git', RENDERER_SHA)):
+            with self.subTest(origin=origin, revision=revision), tempfile.TemporaryDirectory() as temp, contextlib.chdir(temp):
+                self.fixture()
+                folder = Path('artifacts/renderer-diagnostics')
+                (folder / 'CI-SOURCE.txt').write_text(origin + '\n' + revision + '\n')
+                self.rehash(folder)
+                with patch.dict(os.environ, {'CI_COMMIT_SHA': SHA}, clear=True):
+                    with self.assertRaisesRegex(RuntimeError, 'Renderer source revision mismatch'):
+                        pkg.package(channels='debug-ci')
 
     def test_local_head_packages_matching_variants_without_env(self):
         with tempfile.TemporaryDirectory() as temp, contextlib.chdir(temp):

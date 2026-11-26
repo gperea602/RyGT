@@ -224,13 +224,18 @@ def check_package_imports(stage):
         raise RuntimeError('Unresolved imports between packaged modules:\n  ' + '\n  '.join(missing[:20]))
 
 
+def renderer_source_policy(root):
+    """Read the actual source policy; tests may supply a synthetic policy."""
+    return json.loads((root / 'renderer/source.json').read_text())
+
+
 def assemble(commit, flavor, channel, suffix):
     launcher_folder = Path('artifacts/launcher' + suffix)
     renderer_folder = Path('artifacts/renderer' + suffix)
     launcher = verify_bundle(launcher_folder, 'RyGTLauncher.exe', commit, flavor)
     renderer = verify_bundle(renderer_folder, 'libSceVideoOut.prx', commit, flavor)
     root = Path(__file__).resolve().parent.parent
-    pin = json.loads((root / 'renderer/source.json').read_text())
+    pin = renderer_source_policy(root)
     source_file = verify_artifact(renderer_folder, 'CI-SOURCE.txt', commit, 'data')
     source = source_file.read_text(encoding='utf-8-sig')
     lines = source.splitlines()

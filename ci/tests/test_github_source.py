@@ -24,7 +24,19 @@ class GitHubSourceTests(unittest.TestCase):
         for folder in (root / '.github/workflows', HERE / 'github-registry'):
             for channel in ('release', 'debug'):
                 workflow = (folder / ('ci-package-' + channel + '.yml')).read_text()
-                self.assertEqual(workflow.count('git remote add origin https://github.com/RyGT-Team/RyGT.git'), 3)
+                # FIX-RT-902: the fork's diagnostic workflow deliberately never
+                # fetches the upstream runtime or calls its registry.
+                if folder == root / '.github/workflows' and channel == 'debug':
+                    self.assertEqual(workflow.count('git remote add origin https://github.com/gperea602/RyGT.git'), 1)
+                    self.assertNotIn('RyGT-Team/RyGT', workflow)
+                    self.assertNotIn('RyGT-Team/shadGT', workflow)
+                    self.assertNotIn('registry_ci.py', workflow)
+                    self.assertIn("github.repository == 'gperea602/RyGT'", workflow)
+                    self.assertIn("github.ref == 'refs/heads/feat/shader-preparation-nvidia-4070'", workflow)
+                    self.assertIn("https://github.com/gperea602/shadGT.git", workflow)
+                    self.assertIn("git rev-parse HEAD", workflow)
+                else:
+                    self.assertEqual(workflow.count('git remote add origin https://github.com/RyGT-Team/RyGT.git'), 3)
                 self.assertNotIn('gitlab.com/rygt-team/RyGTS.git', workflow)
 
     def test_exact_revision_waits_for_github(self):
