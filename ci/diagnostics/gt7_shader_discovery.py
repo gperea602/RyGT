@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""FEAT-GT7-901: diagnostic route runner for the existing shadGT test input bridge.
+"""FEAT-GT7-901/902: diagnostic discovery route runner for shadGT's test bridge.
 
-This does not launch GT7, claim complete coverage, or manipulate protected assets.
-Run only with a separately isolated offline test installation and a diagnostics
-renderer with RYTY_TEST_SCRIPT_FILE pointing to the command file.
+Requires a separately isolated offline test installation; the marker is an
+operator assertion, not a sandbox. Does not launch the game or prove coverage.
 """
 import argparse
 import json
+import os
 import re
+import tempfile
 import time
 from pathlib import Path
 
@@ -42,9 +43,10 @@ def validate_route(route):
     if not isinstance(route, list) or not route:
         raise ValueError("Route must be a non-empty array")
     seen = set()
+    required = {"id", "action", "expect", "timeout_s"}
     for step in route:
-        if not isinstance(step, dict) or set(step) != {"id", "action", "expect", "timeout_s"}:
-            raise ValueError("Each step needs id, action, expect and timeout_s")
+        if not isinstance(step, dict) or not required <= set(step) <= required | {"observe_s"}:
+            raise ValueError("Each step needs id, action, expect and timeout_s; observe_s is optional")
         ident, action, expect, timeout = (step[k] for k in ("id", "action", "expect", "timeout_s"))
         if not isinstance(ident, str) or not ident or ident in seen:
             raise ValueError("Step ids must be unique nonempty strings")
@@ -52,22 +54,36 @@ def validate_route(route):
         if not isinstance(action, str) or action not in ACTIONS:
             raise ValueError("Unsupported action: " + repr(action))
         if not isinstance(expect, str) or not expect.strip():
-            raise ValueError("A fresh log event is required for each action")
+            raise ValueError("A fresh game-state log event is required for each action")
         re.compile(expect)
         if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 0 < timeout <= 600:
             raise ValueError("timeout_s must be between 0 and 600")
+        observe = step.get("observe_s", 2)
+        if isinstance(observe, bool) or not isinstance(observe, (int, float)) or not 0 <= observe <= 600:
+            raise ValueError("observe_s must be between 0 and 600")
+
+
+def acknowledgment(action):
+    if action == "shot":
+        return "Ryty test script: screenshot at "
+    if action == "shotwindow":
+        return "Ryty test script: window screenshot at "
+    return "Ryty test script: pressed " + action + " at "
 
 
 class LogTail:
     def __init__(self, path):
         self.path = path
-        self.offset = path.stat().st_size
+        stat = path.stat()
+        self.identity = (stat.st_dev, stat.st_ino)
+        self.offset = stat.st_size
         self.pending = b""
 
     def read(self):
         with self.path.open("rb") as source:
-            if source.seek(0, 2) < self.offset:
-                raise RuntimeError("Log truncated during route; aborting")
+            stat = os.fstat(source.fileno())
+            if (stat.st_dev, stat.st_ino) != self.identity or stat.st_size < self.offset:
+                raise RuntimeError("Log replaced or truncated during route; aborting")
             source.seek(self.offset)
             data = source.read()
             self.offset = source.tell()
@@ -75,20 +91,53 @@ class LogTail:
         self.pending = lines.pop()
         return [line.decode("utf-8", errors="replace").rstrip("\r") for line in lines]
 
-    def wait(self, pattern, timeout, stop):
+    def wait(self, pattern, timeout, stop, ack=None):
         deadline = time.monotonic() + timeout
         compiled = re.compile(pattern)
+        acknowledged = ack is None
+        observed = False
         while time.monotonic() < deadline:
             if stop.exists():
                 raise RuntimeError("Stop requested")
-            if any(compiled.search(line) for line in self.read()):
+            for line in self.read():
+                if ack is not None and ack in line:
+                    acknowledged = True
+                elif compiled.search(line):
+                    observed = True
+            if acknowledged and observed:
                 return
-            time.sleep(0.1)
-        raise TimeoutError("Expected fresh event not observed: " + pattern)
+            time.sleep(0.05)
+        raise TimeoutError(f"Missing fresh event or acknowledgment: {pattern}; ack={acknowledged}, event={observed}")
+
+
+def observe(stop, seconds):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if stop.exists():
+            raise RuntimeError("Stop requested")
+        time.sleep(min(0.05, max(0, deadline - time.monotonic())))
+
+
+def checkpoint(report, result):
+    """Publish a whole progress report after each confirmed step."""
+    fd, tmp = tempfile.mkstemp(prefix=report.name + ".", dir=report.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as output:
+            json.dump(result, output, indent=2)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(tmp, report)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
 
 
 def run_route(root, route, store, log, commands, report):
     validate_route(route)
+    root = root.resolve()
+    store, log, commands, report = (p.resolve() for p in (store, log, commands, report))
+    if len({store, log, commands, report}) != 4 or any(root not in p.parents for p in (store, log, commands, report)):
+        raise ValueError("Distinct route paths must be inside the sandbox")
     cache = root / "shaders"
     if not (root / ".gt7-preparation-sandbox").is_file():
         raise ValueError("Explicit isolated diagnostic sandbox marker required")
@@ -96,51 +145,50 @@ def run_route(root, route, store, log, commands, report):
         raise ValueError("Select the active shader store directly inside sandbox/shaders")
     if not log.is_file() or not commands.is_file() or commands.stat().st_size != 0:
         raise ValueError("Live log and empty command file are required")
-    if report.exists():
-        raise ValueError("Report already exists; choose a new path")
     stop = commands.with_suffix(commands.suffix + ".stop")
     tail = LogTail(log)
-    result = {"status": "running", "coverage": "observed identities only", "steps": []}
+    initial = snapshot(cache, store)
+    result = {"status": "running", "coverage": "observed identities only", "steps": [], "total_steps": len(route)}
+    # Reserve a report without overwriting a previous run, then checkpoint atomically.
+    with report.open("x", encoding="utf-8") as output:
+        json.dump(result, output)
     try:
         for step in route:
             if stop.exists():
                 raise RuntimeError("Stop requested")
-            # Discard previous events before the new action; do not accept stale acknowledgements.
             tail.read()
             tail.pending = b""
             before = snapshot(cache, store)
             with commands.open("a", encoding="ascii", newline="\n") as output:
                 output.write(step["action"] + "\n")
                 output.flush()
-            tail.wait(step["expect"], step["timeout_s"], stop)
+            tail.wait(step["expect"], step["timeout_s"], stop, acknowledgment(step["action"]))
+            observe(stop, step.get("observe_s", 2))
             result["steps"].append({"id": step["id"], "observed": delta(before, snapshot(cache, store))})
+            result["total_observed"] = delta(initial, snapshot(cache, store))
+            checkpoint(report, result)
         result["status"] = "route_completed"
     except (OSError, RuntimeError, TimeoutError) as error:
         result["status"] = "incomplete"
         result["error"] = str(error)
     finally:
-        with report.open("x", encoding="utf-8") as output:
-            json.dump(result, output, indent=2)
+        result["total_observed"] = delta(initial, snapshot(cache, store))
+        checkpoint(report, result)
     return result["status"] == "route_completed"
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--sandbox", type=Path, required=True)
-    parser.add_argument("--store", type=Path, required=True)
-    parser.add_argument("--log", type=Path, required=True)
-    parser.add_argument("--commands", type=Path, required=True)
-    parser.add_argument("--route", type=Path, required=True)
-    parser.add_argument("--report", type=Path, required=True)
+    for name in ("sandbox", "store", "log", "commands", "route", "report"):
+        parser.add_argument("--" + name, type=Path, required=True)
     args = parser.parse_args()
     root = args.sandbox.resolve()
-    paths = [p.resolve() for p in (args.store, args.log, args.commands, args.route, args.report)]
-    if any(root not in p.parents for p in paths):
-        parser.error("All paths must be inside the diagnostic sandbox")
-    store, log, commands, route, report = paths
+    route = args.route.resolve()
+    if root not in route.parents or route in {p.resolve() for p in (args.store, args.log, args.commands, args.report)}:
+        parser.error("Route file must be distinct and inside the diagnostic sandbox")
     try:
         return 0 if run_route(root, json.loads(route.read_text(encoding="utf-8")),
-                              store, log, commands, report) else 1
+                              args.store, args.log, args.commands, args.report) else 1
     except (OSError, ValueError, re.error) as error:
         parser.error(str(error))
 
