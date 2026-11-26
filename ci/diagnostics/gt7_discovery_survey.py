@@ -8,16 +8,15 @@ import argparse
 import json
 import math
 import os
-import re
 import time
 from pathlib import Path
 
 from gt7_shader_discovery import LogTail, delta, snapshot
 
-COMPILE = re.compile(r"Compiling (graphics|compute) pipeline (0x[0-9a-f]+)\b", re.I)
+from gt7_discovery_events import RaceState, pipeline_event
 
 
-def survey(root, store, log, report, interval=2, duration=None):
+def survey(root, store, log, report, interval=2, duration=None, state_log=None):
     if not math.isfinite(interval) or not 0.05 <= interval <= 60:
         raise ValueError("interval must be between 0.05 and 60 seconds")
     if duration is not None and (not math.isfinite(duration) or duration <= 0):
@@ -36,7 +35,15 @@ def survey(root, store, log, report, interval=2, duration=None):
         raise ValueError("Select the active shader store and a live log")
     if stop.exists():
         raise ValueError("Remove stale stop file before starting a new survey")
+    if state_log is not None:
+        state_log = state_log.resolve()
+        if root not in state_log.parents or state_log in (store, log, report, stop) or not state_log.is_file():
+            raise ValueError("State log must be a distinct existing sandbox file")
     tail = LogTail(log)
+    state_tail = LogTail(state_log) if state_log is not None else None
+    state = RaceState()
+    compute_installed = set()
+    graphics_reports = 0
     initial = snapshot(cache, store)
     previous = initial
     seen = {k: set(v) for k, v in initial.items()}
@@ -48,10 +55,12 @@ def survey(root, store, log, report, interval=2, duration=None):
             output.flush()
             os.fsync(output.fileno())
 
-        emit({"type": "start", "schema": 1, "store": str(store.relative_to(root)),
+        emit({"type": "start", "schema": 2, "store": str(store.relative_to(root)),
               "log": str(log.relative_to(root)), "initial_log_offset": tail.offset,
               "initial_counts": {k: len(v) for k, v in initial.items()},
-              "coverage": "observed identities only", "scene_state": "unclassified"})
+              "coverage": "observed identities only", "scene_state": "unclassified",
+              "state_log": str(state_log.relative_to(root)) if state_log else None,
+              "initial_state_log_offset": state_tail.offset if state_tail else None})
         try:
             while True:
                 # The original log remains the authoritative source. Preserve its
@@ -60,11 +69,18 @@ def survey(root, store, log, report, interval=2, duration=None):
                 lines = tail.read()
                 events = []
                 for line in lines:
-                    match = COMPILE.search(line)
-                    if match:
-                        kind, key = (v.lower() for v in match.groups())
-                        attempts[kind].add(key)
-                        events.append({"kind": kind, "key": key})
+                    event = pipeline_event(line)
+                    if event is not None:
+                        if event["type"] == "attempt":
+                            attempts[event["kind"]].add(event["key"])
+                        elif event["type"] == "installed":
+                            compute_installed.add(event["key"])
+                        elif event["type"] == "graphics_report":
+                            graphics_reports += 1
+                        events.append(event)
+                state_offset = state_tail.offset if state_tail else None
+                race_events = [event for line in (state_tail.read() if state_tail else lines)
+                               if (event := state.observe(line)) is not None]
                 current = snapshot(cache, store)
                 for k in seen:
                     seen[k].update(current[k])
@@ -73,6 +89,12 @@ def survey(root, store, log, report, interval=2, duration=None):
                       "log_start": offset, "log_end": tail.offset,
                       "log_lines": len(lines), "compile_events": events,
                       "unique_logged_compile_attempts": {k: len(v) for k, v in attempts.items()},
+                      "graphics_reports": graphics_reports,
+                      "unique_logged_compute_installed": len(compute_installed),
+                      "race_events": race_events,
+                      "race_signal": {"session": state.session, "running": state.running},
+                      "state_log_start": state_offset,
+                      "state_log_end": state_tail.offset if state_tail else None,
                       "observed": delta(previous, current),
                       "ever_new": {k: len(v - initial[k]) for k, v in seen.items()}})
                 previous = current
@@ -93,12 +115,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("sandbox", "store", "log", "report"):
         parser.add_argument("--" + name, type=Path, required=True)
+    parser.add_argument("--state-log", type=Path, help="Separate stderr log for GT7 race signals")
     parser.add_argument("--interval", type=float, default=2)
     parser.add_argument("--duration", type=float, help="Optional survey duration; otherwise stop file or Ctrl+C")
     args = parser.parse_args()
     try:
         return 0 if survey(args.sandbox, args.store, args.log, args.report,
-                           args.interval, args.duration) else 1
+                           args.interval, args.duration, args.state_log) else 1
     except (OSError, ValueError) as error:
         parser.error(str(error))
 

@@ -49,7 +49,7 @@ those still require separate live checks before a real session.
 
 ## Experimental build (FEAT-RT-901)
 
-This branch pins gperea602/shadGT at 99062fa02da4e308903c3379117dddf1d32d9825. The branch-local
+This branch pins gperea602/shadGT at bbd838b3cdfe215184495fd9b5cf6967a4ecd1de. The branch-local
 Diagnostics workflow builds both personal forks, tests Python controls, and
 uploads checked ZIPs plus discovery scripts as Actions artifacts. It never
 calls the upstream package workflow or registry. The workflow is restricted to
@@ -71,3 +71,15 @@ log byte offsets. Attempts are not confirmed successful compilations. A
 resource created and removed between samples can be missed. Scene states
 remain unclassified until confirmed in a real GT7 session. Log retention
 and memory/disk costs of very long surveys still need live measurement.
+
+## Observed GT7 race signals (FEAT-GT7-905)
+
+Pass stdout as --log and stderr as --state-log, starting with fresh logs.
+The survey now distinguishes compile attempts, logged graphics stage reports
+(not full pipeline identities), installed compute keys, and race signal changes.
+GAME-002 is a session flag; GAME-006 is a running flag. Neither proves a
+specific track, menu, pause or successful finish. Separate log offsets are
+reported without pretending that untimestamped stdout events can be ordered
+exactly against stderr. No automatic controller input is added by this change.
+The new renderer pin has a successful compile-only check; the integrated
+diagnostics package still needs validation.

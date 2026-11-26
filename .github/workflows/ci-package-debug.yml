@@ -140,6 +140,7 @@ jobs:
           path: |
             ci/diagnostics/gt7_shader_discovery.py
             ci/diagnostics/gt7_discovery_survey.py
+            ci/diagnostics/gt7_discovery_events.py
             ci/diagnostics/gt7_preparation_preflight.py
             ci/diagnostics/GT7_SHADER_DISCOVERY.md
           if-no-files-found: error
