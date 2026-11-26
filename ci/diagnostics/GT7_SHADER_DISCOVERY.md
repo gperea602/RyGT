@@ -31,3 +31,18 @@ a defensible independent inventory exists.
 
 The route runner is deliberately not wired to the launcher yet. Need explicit
 save/network isolation and a validated diagnostics build before live execution.
+
+## Filesystem preflight (FEAT-GT7-903)
+
+The runtime derives save migration roots from the executable directory
+(SaveLayoutStart.cpp) and guest paths from the working directory (General.cpp).
+The renderer's portable cache also depends on the user directory
+(path_util.cpp). Merely changing the working directory is insufficient.
+
+Use an independent physical copy of the installation, not junctions or hardlinks.
+The new gt7_preparation_preflight.py checks separate roots, required paths,
+linked files, App0 layer configuration and explicit log paths. Run it under
+the same environment planned for the diagnostic process. It does not start the
+game or create the operator assertion marker. A pass does not establish OS-level
+isolation, exclusive execution, safe input routing or offline network behavior;
+those still require separate live checks before a real session.
