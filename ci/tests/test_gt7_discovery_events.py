@@ -24,6 +24,19 @@ class DiscoveryEventTests(unittest.TestCase):
         self.assertFalse(event['session'])
         self.assertIsNone(event['running'])
 
+    def test_reinstalled_hook_invalidates_previous_race(self):
+        state = RaceState()
+        state.observe("[patch] GAME-002 09:59:37.501 GT7 in a race: the race code runs (org_race's gate is open)")
+        state.observe('[patch] GAME-006 09:59:52.544 GT7 race starts (countdown or start)')
+        self.assertTrue(state.session)
+        self.assertTrue(state.running)
+        state.observe("[patch] GAME-002 GT7 race signal applied (org_race's gate)")
+        self.assertIsNone(state.session)
+        self.assertIsNone(state.running)
+        event = state.observe('[patch] GAME-006 10:00:00.000 GT7 race starts (countdown or start)')
+        self.assertIsNone(event['session'])
+        self.assertTrue(event['running'])
+
     def test_unrecognized_and_other_game_ignored(self):
         state = RaceState()
         self.assertIsNone(state.observe('[patch] GAME-006 10:01:04.978 GTS race starts (countdown or start)'))

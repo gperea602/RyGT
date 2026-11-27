@@ -16,6 +16,9 @@ class RaceState:
 
     def observe(self, line):
         if line.startswith('[patch] GAME-002 GT7 race signal applied ('):
+            # A newly installed observer has no evidence from this installation yet.
+            self.session = None
+            self.running = None
             return {'type': 'race_hook_installed'}
         match = RACE.fullmatch(line)
         if not match:
