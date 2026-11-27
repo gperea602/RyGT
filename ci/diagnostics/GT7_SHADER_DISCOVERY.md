@@ -83,3 +83,26 @@ reported without pretending that untimestamped stdout events can be ordered
 exactly against stderr. No automatic controller input is added by this change.
 The new renderer pin has a successful compile-only check; the integrated
 diagnostics package still needs validation.
+
+## Cold store from a private recording (FEAT-GT7-906)
+
+With the game closed, use a trusted recording of CUSA24769 update 1.71 and
+a new output directory. The source is the shaders folder from the recording.
+For example, in PowerShell:
+
+    py gt7_cold_start.py --source D:\GT7-recording\shaders --output D:\GT7-private-seed
+
+For a cold trial, use the generated folder as the shaders directory in a fresh
+isolated copy. It holds preparation inputs only. Preserve the original installation.
+With the same renderer and settings, enable SHADGT_PREWARM=1,
+SHADGT_MANIFEST_PRETRANSLATE=1 and SHADGT_WARM_COMPUTE=1 for the trial.
+Use an unarchived shader store with dynamic vertex input for graphics.
+Records require captured code. Graphics also require a pipeline catalog and
+matching renderer switches. Compute recipes require a matching device policy.
+The renderer validates recipes at use. Staging counts are file counts.
+
+Check PERF-GT7-117 for translations actually stored, FEAT-GTS-471 for
+resolved graphics keys, and PERF-GT7-037 for compute pipelines actually warmed.
+Compare first-race frame times and skipped draws against an unseeded run of the
+same scene. Record driver-cache state separately. This path covers recorded
+work only. Keep private shader inputs out of Git and public artifacts.

@@ -139,6 +139,7 @@ jobs:
           name: GT7-discovery-tools-${{ github.sha }}
           path: |
             ci/diagnostics/gt7_shader_discovery.py
+            ci/diagnostics/gt7_cold_start.py
             ci/diagnostics/gt7_discovery_survey.py
             ci/diagnostics/gt7_discovery_events.py
             ci/diagnostics/gt7_preparation_preflight.py
