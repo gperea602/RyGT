@@ -265,3 +265,4 @@ still work so that previously configured setups keep running:
 | `RTY_NET_ENABLE=1` | Experimental: activate the RytyNet online-mode bridge (see [RytyNet](RYTNET.md)). `0` forces it off. |
 | `RTY_NET_LOG=1` | Log RytyNet decisions and requests to stderr (`[rytynet]` lines). |
 | `RTY_GPU_VENDOR`, `RTY_GPU_INDEX` | GPU selection overrides for mixed-GPU systems (see [GPU support](../dev/GPU_SUPPORT.md)). |
+| `RYGT_SYSTEM_LANGUAGE` | FEAT-RT-905: PS4 language ID (0-30), or `es` (Spain), `es-419` (Latin America). GT7 launcher: Display > Game language. English (US) if unset or invalid. Legacy `RTY_SYSTEM_LANGUAGE` is read when the new name is unset. Restart the game. |

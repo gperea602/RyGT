@@ -6,6 +6,10 @@ The version lives in `loader/Version.cs`. To release a change, bump
 `LauncherVersion.Value` there and add a section here with the same number;
 CI fails when the two disagree.
 
+## 0.3.19 - 2026-11-28
+
+* FEAT-RT-905: Backport GT7 game-language selection from upstream FEAT-RT-032. Display > Game language saves the PS4 language ID and passes it to the runtime. English (US) remains the default. The experimental renderer pin is unchanged.
+
 ## 0.3.18 - 2026-11-22
 
 * FIX-RT-029: Set up (GT7 and GT Sport) shows "Set up: decrypt your game dump first", naming the file, when a

@@ -610,6 +610,23 @@ namespace RyGT
             Check(NotDecryptedException.FromConverterLog(log, "eboot.bin") == null, "Other converter failures keep the generic message");
         }
 
+        // FEAT-RT-905: language is read from General, not GPU or the path INI.
+        static void LanguageChecks(string root)
+        {
+            string dir = Folder(root, "language");
+            string path = GameInfo.GT7.ConfigPath(dir);
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            Check(LoaderForm.Gt7LanguageSetting(dir) == null, "Absent language preserves runtime default");
+            File.WriteAllText(path, "{\"General\":{\"system_language\":\"20\"},\"GPU\":{\"system_language\":3}}");
+            Check(LoaderForm.Gt7LanguageSetting(dir) == "20", "Latin American Spanish from General");
+            File.WriteAllText(path, "{\"General\":{\"system_language\":3}}");
+            Check(LoaderForm.Gt7LanguageSetting(dir) == "3", "Spain Spanish numeric JSON");
+            File.WriteAllText(path, "{\"General\":{\"system_language\":\"31\"}}");
+            Check(LoaderForm.Gt7LanguageSetting(dir) == null, "Invalid language not passed");
+            File.WriteAllText(path, "{\"GPU\":{\"system_language\":20}}");
+            Check(LoaderForm.Gt7LanguageSetting(dir) == null, "Wrong section ignored");
+        }
+
         static int Main()
         {
             string root = Path.Combine(Path.GetTempPath(), "RyGT-unified-test-" + Guid.NewGuid().ToString("N"));
@@ -626,6 +643,7 @@ namespace RyGT
                 SharedNameChecks(root);
                 OneFolderChecks(root);
                 DumpChecks(root);
+                LanguageChecks(root);
             }
             catch (Exception e) { Console.Error.WriteLine("FAIL: " + e); return 1; }
             finally { try { Directory.Delete(root, true); } catch { } }

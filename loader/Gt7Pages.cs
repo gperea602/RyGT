@@ -28,6 +28,7 @@ namespace RyGT
         {
             var display = Section(displayPage, "Screen");
             AddScreenSettings(display);
+            AddLanguageSetting(display);
             AddOption(display, "Show an FPS counter", "General", "show_fps_counter", false);
             AddOption(display, "Show the splash screen while the game starts", "General", "show_splash", false);
             AddOption(display, "Show the game on Discord (Rich Presence)", "General", "discord_rpc_enabled", true);
@@ -749,8 +750,46 @@ namespace RyGT
         }
 
 
+        // FEAT-RT-905 (backport of FEAT-RT-032 / RyGT #114): the game's language (General.system_language, the game gets it as
+        // RYGT_SYSTEM_LANGUAGE). GT7 follows the console's system language, which the runtime reported
+        // as English (US) unless RTY_SYSTEM_LANGUAGE was set by hand (RyGT PR #64). The ids are the
+        // PS4's; a language the game doesn't have falls back to its own default.
+        static readonly string[] SystemLanguages =
+        {
+            "Japanese", "English (US)", "French", "Spanish (Spain)", "German", "Italian", "Dutch",
+            "Portuguese (Portugal)", "Russian", "Korean", "Chinese (Traditional)", "Chinese (Simplified)",
+            "Finnish", "Swedish", "Danish", "Norwegian", "Polish", "Portuguese (Brazil)", "English (UK)",
+            "Turkish", "Spanish (Latin America)", "Arabic", "French (Canada)", "Czech", "Hungarian",
+            "Greek", "Romanian", "Thai", "Vietnamese", "Indonesian", "Ukrainian",
+        };
+
+        void AddLanguageSetting(TableLayoutPanel panel)
+        {
+            var row = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 4, 0, 2), WrapContents = false };
+            var label = new Label { Text = "Game language", AutoSize = false, Width = 196, Height = 20, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0) };
+            var language = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, FlatStyle = FlatStyle.Flat };
+            language.Items.AddRange(SystemLanguages);
+            int stored;
+            language.SelectedIndex = int.TryParse(ReadStringSetting("General", "system_language", "1"), out stored) &&
+                                     stored >= 0 && stored < SystemLanguages.Length ? stored : 1;
+            language.SelectedIndexChanged += delegate
+            {
+                try { WriteSetting("General", "system_language", language.SelectedIndex.ToString()); }
+                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
+            };
+            row.Controls.Add(label);
+            row.Controls.Add(language);
+            panel.Controls.Add(row);
+        }
+
+
         /// A GPU section setting from the game's settings file, or null.
         static object GpuSetting(string root, string key)
+        {
+            return GameSetting(root, "GPU", key);
+        }
+
+        static object GameSetting(string root, string section, string key)
         {
             try
             {
@@ -758,13 +797,23 @@ namespace RyGT
                 var config = new System.Web.Script.Serialization.JavaScriptSerializer()
                     .DeserializeObject(File.ReadAllText(path)) as Dictionary<string, object>;
                 object found, value;
-                var gpu = config != null && config.TryGetValue("GPU", out found) ? found as Dictionary<string, object> : null;
+                var gpu = config != null && config.TryGetValue(section, out found) ? found as Dictionary<string, object> : null;
                 if (gpu != null && gpu.TryGetValue(key, out value)) return value;
             }
             catch { }
             return null;
         }
 
+
+        // FEAT-RT-905: accept string or integer JSON IDs; ignore invalid values.
+        internal static string Gt7LanguageSetting(string root)
+        {
+            object value = GameSetting(root, "General", "system_language");
+            int id;
+            string text = value is int ? ((int)value).ToString(System.Globalization.CultureInfo.InvariantCulture) : value as string;
+            return int.TryParse(text, out id) && id >= 0 && id < SystemLanguages.Length
+                ? id.ToString(System.Globalization.CultureInfo.InvariantCulture) : null;
+        }
 
         /// The shader cache limit in MB for RYGT_DRIVER_CACHE_MAX_MB: -1 unlimited, 0 off, 2 GB unless set.
         static long DriverCacheMaxMb(string root)
@@ -1380,6 +1429,8 @@ namespace RyGT
                     start.EnvironmentVariables["RYGT_UPSCALE_QUALITY"] = GpuSetting(root, "upscale_quality") as string ?? "auto";
                     // Texture sharpness from the Graphics page (detail levels added to every sampler's bias).
                     start.EnvironmentVariables["RYGT_TEXTURE_LOD_BIAS"] = GpuSetting(root, "texture_lod_bias") as string ?? "0";
+                    string language = Gt7LanguageSetting(root);
+                    if (language != null) start.EnvironmentVariables["RYGT_SYSTEM_LANGUAGE"] = language;
                     // FEAT-GT7-181: DLSS texture detail from the Graphics page. Reduced: the bias without its -1;
                     // Off: no bias; Full sets nothing. A renderer without these switches ignores them.
                     string dlssBias, dlssExtra;

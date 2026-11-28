@@ -9,6 +9,7 @@
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libSceSystemService/SystemService.hpp"
+#include "prx/libSceSystemService/SystemLanguage.hpp"
 #include "prx/libSceSystemService/HdrLuminance.hpp"
 
 extern "C" {
@@ -111,7 +112,7 @@ int APS5_VABI sceSystemServiceParamGetInt(int paramId, int* value) {
   return SYSTEM_SERVICE_ERROR_PARAMETER;
  }
  switch (paramId) {
-  case SYSTEM_SERVICE_PARAM_ID_LANG: *value = SYSTEM_SERVICE_PARAM_LANG_ENGLISH_US; break;
+  case SYSTEM_SERVICE_PARAM_ID_LANG: *value = SystemLanguage::Resolve(std::getenv("RYGT_SYSTEM_LANGUAGE"), std::getenv("RTY_SYSTEM_LANGUAGE")); break;
   case SYSTEM_SERVICE_PARAM_ID_DATE_FORMAT: *value = SYSTEM_SERVICE_PARAM_DATE_FORMAT_DDMMYYYY; break;
   case SYSTEM_SERVICE_PARAM_ID_TIME_FORMAT: *value = SYSTEM_SERVICE_PARAM_TIME_FORMAT_24HOUR; break;
   case SYSTEM_SERVICE_PARAM_ID_TIME_ZONE: *value = 0; break;

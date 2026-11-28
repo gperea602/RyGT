@@ -34,6 +34,10 @@ jobs:
           PY
       - name: Run discovery and runtime Python tests
         run: python3 -m unittest discover -s ci/tests -p 'test_*.py' -v
+      - name: Test system language resolver
+        run: |
+          c++ -std=c++17 -Wall -Wextra -Werror ci/tests/system_language_test.cpp -o /tmp/system-language-test
+          /tmp/system-language-test
   windows:
     needs: tests
     runs-on: windows-2022
@@ -75,6 +79,8 @@ jobs:
           if ($LASTEXITCODE) { throw 'Python tests failed' }
           . ./ci/setup-hosted-windows.ps1
           & ./ci/build-windows.ps1 -Target Launcher -Flavor Diagnostics
+          cmd.exe /d /c loader\test-launcher.cmd "$env:RYGT_CI_ROOT/launcher-test-output"
+          if ($LASTEXITCODE) { throw 'Launcher tests failed' }
           & ./ci/build-windows.ps1 -Target Renderer -Flavor Diagnostics
           & ./ci/build-windows.ps1 -Target Runtime
           & ./ci/build-windows.ps1 -Target Tools
