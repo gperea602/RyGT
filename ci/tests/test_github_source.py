@@ -32,8 +32,10 @@ class GitHubSourceTests(unittest.TestCase):
                     self.assertNotIn('RyGT-Team/shadGT', workflow)
                     self.assertNotIn('registry_ci.py', workflow)
                     self.assertIn("github.repository == 'gperea602/RyGT'", workflow)
-                    self.assertIn("github.ref == 'refs/heads/feat/shader-preparation-nvidia-4070'", workflow)
+                    self.assertIn("github.ref == 'refs/heads/feat/giulio-racing-ai'", workflow)
                     self.assertIn("https://github.com/gperea602/shadGT.git", workflow)
+                    self.assertIn('pin["commit"] == "bbd838b3cdfe215184495fd9b5cf6967a4ecd1de"', workflow)
+                    self.assertIn("branches: [feat/giulio-racing-ai]", workflow)
                     self.assertIn("git rev-parse HEAD", workflow)
                 else:
                     self.assertEqual(workflow.count('git remote add origin https://github.com/RyGT-Team/RyGT.git'), 3)
