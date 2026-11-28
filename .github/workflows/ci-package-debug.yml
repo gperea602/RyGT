@@ -1,17 +1,17 @@
-name: RyGT Diagnostics CI package
-run-name: GT7 experimental discovery build
+name: Giulio Racing AI CI package
+run-name: Giulio Racing AI baseline build
 on:
   push:
-    branches: [feat/shader-preparation-nvidia-4070]
+    branches: [feat/giulio-racing-ai]
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: gt7-preparation-${{ github.ref }}
+  group: giulio-racing-ai-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   tests:
-    if: github.repository == 'gperea602/RyGT' && github.ref == 'refs/heads/feat/shader-preparation-nvidia-4070'
+    if: github.repository == 'gperea602/RyGT' && github.ref == 'refs/heads/feat/giulio-racing-ai'
     runs-on: ubuntu-24.04
     outputs:
       renderer: ${{ steps.pin.outputs.renderer }}
@@ -28,7 +28,7 @@ jobs:
           pin = json.loads(Path("renderer/source.json").read_text())
           assert pin["repository"] == "https://github.com/gperea602/shadGT.git"
           assert pin["branch"] == "feat/shader-preparation-nvidia-4070"
-          assert re.fullmatch("[0-9a-f]{40}", pin["commit"])
+          assert pin["commit"] == "bbd838b3cdfe215184495fd9b5cf6967a4ecd1de", "Racing AI renderer baseline must remain fixed"
           with open(os.environ["GITHUB_OUTPUT"], "a") as out:
               print("renderer=" + pin["commit"], file=out)
           PY
@@ -86,7 +86,7 @@ jobs:
           & ./ci/build-windows.ps1 -Target Tools
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: experimental-windows-build
+          name: giulio-racing-ai-windows-build
           path: |
             ${{ env.RYGT_CI_ROOT }}/artifacts/launcher-diagnostics/**
             ${{ env.RYGT_CI_ROOT }}/artifacts/renderer-diagnostics/**
@@ -108,7 +108,7 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: experimental-windows-build
+          name: giulio-racing-ai-windows-build
           path: artifacts/
       - name: Assemble and check ZIP
         run: python3 ci/package.py
@@ -133,7 +133,7 @@ jobs:
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: GT7-experimental-diagnostics-${{ github.sha }}
+          name: Giulio-Racing-AI-baseline-${{ github.sha }}
           path: |
             dist/RyGT-debug-ci-*.zip
             dist/RyGT-debug-ci-*.zip.sha256
@@ -142,7 +142,7 @@ jobs:
           retention-days: 7
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: GT7-discovery-tools-${{ github.sha }}
+          name: Giulio-Racing-AI-baseline-diagnostics-${{ github.sha }}
           path: |
             ci/diagnostics/gt7_shader_discovery.py
             ci/diagnostics/gt7_cold_start.py
